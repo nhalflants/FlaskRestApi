@@ -1,8 +1,9 @@
-from os import curdir
+from os import curdir, name
 from flask_restful import Resource, reqparse
-from flask_jwt import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 import sqlite3
 from models.item import ItemModel
+from flask import jsonify
 
 class Item(Resource):
     parser = reqparse.RequestParser()
@@ -20,6 +21,7 @@ class Item(Resource):
         # item = next(filter(lambda item: item['name'] == name, items), None)
         # return {'item': item}, 200 if item is not None else 404
 
+    @jwt_required(fresh=True)
     def post(self, name):  
         # Check first for error to avoid loading data if request will fail      
         # if next(filter(lambda item: item['name'] == name, items), None):
@@ -39,6 +41,7 @@ class Item(Resource):
         
         return item.json(), 201
 
+    @jwt_required()
     def delete(self, name):
         # global items
         # items = list(filter(lambda x: x['name'] != name, items))
@@ -51,10 +54,14 @@ class Item(Resource):
         
         # connection.commit()
         # connection.close()
+        claims = get_jwt()
+        if not claims['is_admin']:
+            return {'message': 'Admin privilege required'}, 401
         item = ItemModel.find_by_name(name)
         if item:
             item.delete()
-        return {'message': f'item {name} deleted'}
+            return {'message': f'item {name} deleted'}
+        return {'message': f'item {name} not found'}, 404
 
     def put(self, name):
         data = Item.parser.parse_args()
@@ -98,6 +105,17 @@ class ItemList(Resource):
         connection.close()
         return items
 
+    @jwt_required(optional=True)
     def get(self):
-        return {'items': list(map(lambda x: x.json(), ItemModel.query.all()))}
+        user_id = get_jwt_identity()
+        items = [item.json() for item in ItemModel.find_all()]
+        if user_id:
+            return {
+                'items': items
+            }, 200
+        return {
+            'items': [item['name'] for item in items],
+            'message': 'More data available if user is logged in'
+        }, 200
+        # return {'items': list(map(lambda x: x.json(), ItemModel.find_all()))}
         # return {'items': [item.json() for item in ItemModel.query.all()]}
